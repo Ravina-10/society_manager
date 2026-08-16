@@ -10,6 +10,14 @@ final authStateChangesProvider = StreamProvider<User?>((ref) {
   return ref.watch(firebaseAuthProvider).authStateChanges();
 });
 
+String _normalizePhone(String input) {
+  String cleaned = input.replaceAll(RegExp(r'[\s\-()]'), '');
+  if (cleaned.startsWith('+91')) return cleaned;
+  if (cleaned.startsWith('0')) cleaned = cleaned.substring(1);
+  if (cleaned.length == 10) return '+91$cleaned';
+  return cleaned;
+}
+
 class AuthNotifier extends Notifier<AsyncValue<ConfirmationResult?>> {
   @override
   AsyncValue<ConfirmationResult?> build() {
@@ -36,19 +44,56 @@ class AuthNotifier extends Notifier<AsyncValue<ConfirmationResult?>> {
       
       if (userCredential.user != null) {
         final uid = userCredential.user!.uid;
-        final phone = userCredential.user!.phoneNumber ?? '';
+        final rawPhone = userCredential.user!.phoneNumber ?? '';
+        final phone = _normalizePhone(rawPhone);
         final isSuper = phone.contains('9503623550');
         
         try {
           final docRef = _firestore.collection('users').doc(uid);
           final docSnap = await docRef.get();
+          
           if (!docSnap.exists) {
-            await docRef.set({
-              'uid': uid,
-              'phoneNumber': phone,
-              'role': isSuper ? 'Super Admin' : 'Resident',
-              'name': isSuper ? 'Super Admin (+919503623550)' : 'Society Member (${phone.isNotEmpty ? phone : "User"})',
-            }, SetOptions(merge: true));
+            // Check for pre-added user record by matching phone number in Firestore
+            QuerySnapshot matchQuery = await _firestore.collection('users').get();
+            DocumentSnapshot? preAddedDoc;
+            for (var d in matchQuery.docs) {
+              if (d.id == uid) continue;
+              final dData = d.data() as Map<String, dynamic>;
+              final dPhone = _normalizePhone(dData['phoneNumber']?.toString() ?? d.id);
+              if (phone.isNotEmpty && dPhone == phone) {
+                preAddedDoc = d;
+                break;
+              }
+            }
+
+            if (preAddedDoc != null && preAddedDoc.exists) {
+              final data = preAddedDoc.data() as Map<String, dynamic>;
+              final mappedRole = data['role']?.toString().trim();
+              final mappedName = data['name']?.toString().trim();
+
+              await docRef.set({
+                'uid': uid,
+                'phoneNumber': phone.isNotEmpty ? phone : (data['phoneNumber'] ?? ''),
+                'role': isSuper ? 'Super Admin' : (mappedRole != null && mappedRole.isNotEmpty ? mappedRole : 'viewer'),
+                'name': mappedName != null && mappedName.isNotEmpty
+                    ? mappedName
+                    : (isSuper ? 'Super Admin (+919503623550)' : 'Society Member ($phone)'),
+              }, SetOptions(merge: true));
+
+              // Clean up temporary pre-added document if keyed under phone number
+              if (preAddedDoc.id != uid) {
+                try {
+                  await preAddedDoc.reference.delete();
+                } catch (_) {}
+              }
+            } else {
+              await docRef.set({
+                'uid': uid,
+                'phoneNumber': phone,
+                'role': isSuper ? 'Super Admin' : 'viewer',
+                'name': isSuper ? 'Super Admin (+919503623550)' : 'Society Member (${phone.isNotEmpty ? phone : "User"})',
+              }, SetOptions(merge: true));
+            }
           }
         } catch (_) {}
       }
@@ -66,7 +111,7 @@ class AuthNotifier extends Notifier<AsyncValue<ConfirmationResult?>> {
 
 final authNotifierProvider = NotifierProvider<AuthNotifier, AsyncValue<ConfirmationResult?>>(AuthNotifier.new);
 
-// User role provider: Super Admin vs Admin vs Resident
+// User role provider: Super Admin vs Admin vs Viewer
 final userRoleProvider = StreamProvider<String>((ref) {
   final user = ref.watch(authStateChangesProvider).value;
   if (user == null) {
@@ -77,12 +122,29 @@ final userRoleProvider = StreamProvider<String>((ref) {
     return Stream.value('Super Admin');
   }
 
-  return FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots().map((snapshot) {
-    if (snapshot.exists) {
-      final role = (snapshot.data()?['role'] as String?)?.trim();
-      if (role != null && role.isNotEmpty) return role;
+  return FirebaseFirestore.instance.collection('users').snapshots().map((snapshot) {
+    // 1. Direct UID match
+    for (var doc in snapshot.docs) {
+      if (doc.id == user.uid) {
+        final role = (doc.data()['role'] as String?)?.trim();
+        if (role != null && role.isNotEmpty) return role;
+      }
     }
-    return 'Resident';
+
+    // 2. Fallback Phone Number match
+    final cleanPhone = userPhone.replaceAll(RegExp(r'[\s\-()]'), '');
+    if (cleanPhone.isNotEmpty) {
+      for (var doc in snapshot.docs) {
+        final dPhone = (doc.data()['phoneNumber'] as String?)?.replaceAll(RegExp(r'[\s\-()]'), '') ?? doc.id;
+        if (dPhone == cleanPhone) {
+          final role = (doc.data()['role'] as String?)?.trim();
+          if (role != null && role.isNotEmpty) return role;
+        }
+      }
+    }
+
+    // Default to read-only viewer for every logged in user
+    return 'viewer';
   });
 });
 
@@ -93,7 +155,7 @@ final isAdminProvider = Provider<bool>((ref) {
   final phone = user.phoneNumber ?? '';
   if (phone.contains('9503623550')) return true;
 
-  final role = (ref.watch(userRoleProvider).value ?? 'Resident').toLowerCase();
+  final role = (ref.watch(userRoleProvider).value ?? 'viewer').toLowerCase();
   return role == 'admin' || role == 'super admin';
 });
 
@@ -104,8 +166,8 @@ final isSuperAdminProvider = Provider<bool>((ref) {
   final phone = user.phoneNumber ?? '';
   if (phone.contains('9503623550')) return true;
 
-  final role = ref.watch(userRoleProvider).value ?? 'Resident';
-  return role.toLowerCase() == 'super admin';
+  final role = (ref.watch(userRoleProvider).value ?? 'viewer').toLowerCase();
+  return role == 'super admin';
 });
 
 final usersStreamProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {

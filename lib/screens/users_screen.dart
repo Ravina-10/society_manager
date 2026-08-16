@@ -15,7 +15,7 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
   void _showAddEditUserDialog([Map<String, dynamic>? existingUser]) {
     final phoneController = TextEditingController(text: existingUser?['phoneNumber'] ?? existingUser?['id'] ?? '+91 ');
     final nameController = TextEditingController(text: existingUser?['name'] ?? '');
-    String role = (existingUser?['role'] as String?)?.toLowerCase() ?? 'admin';
+    String role = (existingUser?['role'] as String?)?.toLowerCase() ?? 'viewer';
 
     showDialog(
       context: context,
@@ -247,17 +247,17 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
                     final u = users[index];
                     final phone = u['phoneNumber'] ?? u['id'] ?? 'Unknown';
                     final name = u['name'] ?? 'User';
-                    final role = (u['role'] as String?)?.toLowerCase() ?? 'admin';
+                    final role = (u['role'] as String?)?.toLowerCase() ?? 'viewer';
                     final isOwner = phone.toString().contains('9503623550');
 
-                    Color roleColor = Colors.teal;
-                    String roleLabel = 'ADMIN';
+                    Color roleColor = Colors.blueGrey;
+                    String roleLabel = 'RESIDENT / VIEWER';
                     if (role == 'super admin' || isOwner) {
                       roleColor = Colors.purple;
                       roleLabel = 'SUPER ADMIN';
-                    } else if (role == 'viewer') {
-                      roleColor = Colors.blueGrey;
-                      roleLabel = 'RESIDENT / VIEWER';
+                    } else if (role == 'admin') {
+                      roleColor = Colors.teal;
+                      roleLabel = 'ADMIN';
                     }
 
                     return Card(

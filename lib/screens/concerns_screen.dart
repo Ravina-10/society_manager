@@ -246,10 +246,7 @@ class _ConcernsScreenState extends ConsumerState<ConcernsScreen> {
   @override
   Widget build(BuildContext context) {
     final concernsAsync = ref.watch(concernsStreamProvider);
-    final userRoleAsync = ref.watch(userRoleProvider);
-
-    final String role = userRoleAsync.value ?? 'Admin';
-    final bool isAdmin = role.toLowerCase() == 'admin' || role.toLowerCase() == 'super admin';
+    final isAdmin = ref.watch(isAdminProvider);
 
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isMobile = screenWidth < 600;

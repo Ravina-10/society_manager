@@ -460,7 +460,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final String phone = (user?.phoneNumber != null && user!.phoneNumber!.isNotEmpty)
         ? user.phoneNumber!
         : 'Registered User';
-    final String role = ref.read(userRoleProvider).value ?? 'Resident';
+    final String role = ref.read(userRoleProvider).value ?? 'viewer';
 
     String permissions = 'Read-Only Resident / Viewer Access';
     if (role.toLowerCase() == 'super admin') {
